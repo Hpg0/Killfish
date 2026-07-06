@@ -47,6 +47,9 @@ class BoardState {
     var fullMoveNumber: Int = 1
     var hash: Long = 0L
 
+    val bitboards = LongArray(13)
+    val occupancies = LongArray(3) // 0: White, 1: Black, 2: Both
+
     val undoStack = ArrayList<UndoState>()
     val repetitionHistory = ArrayList<Long>()
 
@@ -65,8 +68,27 @@ class BoardState {
         loadFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
     }
 
+    fun updateBitboards() {
+        for (i in 0..12) bitboards[i] = 0L
+        occupancies[0] = 0L
+        occupancies[1] = 0L
+        occupancies[2] = 0L
+        
+        for (sq in 0..63) {
+            val p = board[sq]
+            if (p != EMPTY) {
+                bitboards[p] = bitboards[p] or (1L shl sq)
+                val c = EngineConstants.colorOf(p)
+                occupancies[c] = occupancies[c] or (1L shl sq)
+            }
+        }
+        occupancies[BOTH] = occupancies[WHITE] or occupancies[BLACK]
+    }
+
     fun copyFrom(other: BoardState) {
         System.arraycopy(other.board, 0, this.board, 0, 64)
+        System.arraycopy(other.bitboards, 0, this.bitboards, 0, 13)
+        System.arraycopy(other.occupancies, 0, this.occupancies, 0, 3)
         this.sideToMove = other.sideToMove
         this.castlingRights = other.castlingRights
         this.enPassant = other.enPassant
@@ -80,19 +102,11 @@ class BoardState {
     }
 
     fun getOccupancy(color: Int): Long {
-        var bb = 0L
-        for (sq in 0..63) {
-            val p = board[sq]
-            if (p != EMPTY) {
-                if (color == BOTH || EngineConstants.colorOf(p) == color) {
-                    bb = bb or (1L shl sq)
-                }
-            }
-        }
-        return bb
+        return occupancies[color]
     }
 
     fun computeHash(): Long {
+        updateBitboards()
         var h = 0L
         for (sq in 0..63) {
             val p = board[sq]
@@ -271,13 +285,27 @@ class BoardState {
         hash = hash xor Zobrist.pieceKeys[movingPiece][from]
         board[from] = EMPTY
 
+        // Bitboard update: clear moving piece from 'from'
+        bitboards[movingPiece] = BitboardUtils.clearBit(bitboards[movingPiece], from)
+        occupancies[originalSide] = BitboardUtils.clearBit(occupancies[originalSide], from)
+
         if (isEnPassant) {
             val capturedSq = if (originalSide == WHITE) to - 8 else to + 8
             hash = hash xor Zobrist.pieceKeys[captured][capturedSq]
             board[capturedSq] = EMPTY
+
+            // Bitboard update: clear captured pawn
+            bitboards[captured] = BitboardUtils.clearBit(bitboards[captured], capturedSq)
+            occupancies[originalSide xor 1] = BitboardUtils.clearBit(occupancies[originalSide xor 1], capturedSq)
+
             halfMoveClock = 0
         } else if (isCapture) {
             hash = hash xor Zobrist.pieceKeys[captured][to]
+
+            // Bitboard update: clear captured piece
+            bitboards[captured] = BitboardUtils.clearBit(bitboards[captured], to)
+            occupancies[originalSide xor 1] = BitboardUtils.clearBit(occupancies[originalSide xor 1], to)
+
             halfMoveClock = 0
         } else if (pType == PAWN) {
             halfMoveClock = 0
@@ -293,6 +321,10 @@ class BoardState {
         board[to] = placedPiece
         hash = hash xor Zobrist.pieceKeys[placedPiece][to]
 
+        // Bitboard update: set placed piece on 'to'
+        bitboards[placedPiece] = BitboardUtils.setBit(bitboards[placedPiece], to)
+        occupancies[originalSide] = BitboardUtils.setBit(occupancies[originalSide], to)
+
         // 4. Castling execution
         if (isCastling) {
             when (to) {
@@ -301,24 +333,44 @@ class BoardState {
                     board[EngineConstants.F1] = W_ROOK
                     hash = hash xor Zobrist.pieceKeys[W_ROOK][EngineConstants.H1]
                     hash = hash xor Zobrist.pieceKeys[W_ROOK][EngineConstants.F1]
+
+                    bitboards[W_ROOK] = BitboardUtils.clearBit(bitboards[W_ROOK], EngineConstants.H1)
+                    bitboards[W_ROOK] = BitboardUtils.setBit(bitboards[W_ROOK], EngineConstants.F1)
+                    occupancies[WHITE] = BitboardUtils.clearBit(occupancies[WHITE], EngineConstants.H1)
+                    occupancies[WHITE] = BitboardUtils.setBit(occupancies[WHITE], EngineConstants.F1)
                 }
                 EngineConstants.C1 -> { // WQ
                     board[EngineConstants.A1] = EMPTY
                     board[EngineConstants.D1] = W_ROOK
                     hash = hash xor Zobrist.pieceKeys[W_ROOK][EngineConstants.A1]
                     hash = hash xor Zobrist.pieceKeys[W_ROOK][EngineConstants.D1]
+
+                    bitboards[W_ROOK] = BitboardUtils.clearBit(bitboards[W_ROOK], EngineConstants.A1)
+                    bitboards[W_ROOK] = BitboardUtils.setBit(bitboards[W_ROOK], EngineConstants.D1)
+                    occupancies[WHITE] = BitboardUtils.clearBit(occupancies[WHITE], EngineConstants.A1)
+                    occupancies[WHITE] = BitboardUtils.setBit(occupancies[WHITE], EngineConstants.D1)
                 }
                 EngineConstants.G8 -> { // BK
                     board[EngineConstants.H8] = EMPTY
                     board[EngineConstants.F8] = B_ROOK
                     hash = hash xor Zobrist.pieceKeys[B_ROOK][EngineConstants.H8]
                     hash = hash xor Zobrist.pieceKeys[B_ROOK][EngineConstants.F8]
+
+                    bitboards[B_ROOK] = BitboardUtils.clearBit(bitboards[B_ROOK], EngineConstants.H8)
+                    bitboards[B_ROOK] = BitboardUtils.setBit(bitboards[B_ROOK], EngineConstants.F8)
+                    occupancies[BLACK] = BitboardUtils.clearBit(occupancies[BLACK], EngineConstants.H8)
+                    occupancies[BLACK] = BitboardUtils.setBit(occupancies[BLACK], EngineConstants.F8)
                 }
                 EngineConstants.C8 -> { // BQ
                     board[EngineConstants.A8] = EMPTY
                     board[EngineConstants.D8] = B_ROOK
                     hash = hash xor Zobrist.pieceKeys[B_ROOK][EngineConstants.A8]
                     hash = hash xor Zobrist.pieceKeys[B_ROOK][EngineConstants.D8]
+
+                    bitboards[B_ROOK] = BitboardUtils.clearBit(bitboards[B_ROOK], EngineConstants.A8)
+                    bitboards[B_ROOK] = BitboardUtils.setBit(bitboards[B_ROOK], EngineConstants.D8)
+                    occupancies[BLACK] = BitboardUtils.clearBit(occupancies[BLACK], EngineConstants.A8)
+                    occupancies[BLACK] = BitboardUtils.setBit(occupancies[BLACK], EngineConstants.D8)
                 }
             }
         }
@@ -347,10 +399,13 @@ class BoardState {
             fullMoveNumber++
         }
 
+        // Update combined occupancy
+        occupancies[BOTH] = occupancies[WHITE] or occupancies[BLACK]
+
         // 9. King Safety validation
         val kingSq = findKing(originalSide)
         val occupied = getOccupancy(BOTH)
-        if (kingSq != -1 && AttackTables.isSquareAttacked(kingSq, sideToMove, occupied, board)) {
+        if (kingSq != -1 && AttackTables.isSquareAttacked(kingSq, sideToMove, occupied, this)) {
             unmakeMove(move)
             return false
         }
@@ -391,14 +446,33 @@ class BoardState {
             board[to]
         }
 
+        // Bitboard update: clear piece from 'to' before restoring
+        val toPiece = board[to]
+        if (toPiece != EMPTY) {
+            bitboards[toPiece] = BitboardUtils.clearBit(bitboards[toPiece], to)
+            occupancies[sideToMove] = BitboardUtils.clearBit(occupancies[sideToMove], to)
+        }
+
         board[from] = restoredPiece
+
+        // Bitboard update: set piece back to 'from'
+        bitboards[restoredPiece] = BitboardUtils.setBit(bitboards[restoredPiece], from)
+        occupancies[sideToMove] = BitboardUtils.setBit(occupancies[sideToMove], from)
 
         if (isEnPassant) {
             board[to] = EMPTY
             val capturedSq = if (sideToMove == WHITE) to - 8 else to + 8
             board[capturedSq] = undo.capturedPiece
+
+            // Bitboard update: restore captured en passant pawn
+            bitboards[undo.capturedPiece] = BitboardUtils.setBit(bitboards[undo.capturedPiece], capturedSq)
+            occupancies[sideToMove xor 1] = BitboardUtils.setBit(occupancies[sideToMove xor 1], capturedSq)
         } else if (isCapture) {
             board[to] = undo.capturedPiece
+
+            // Bitboard update: restore captured piece
+            bitboards[undo.capturedPiece] = BitboardUtils.setBit(bitboards[undo.capturedPiece], to)
+            occupancies[sideToMove xor 1] = BitboardUtils.setBit(occupancies[sideToMove xor 1], to)
         } else {
             board[to] = EMPTY
         }
@@ -409,21 +483,44 @@ class BoardState {
                 EngineConstants.G1 -> {
                     board[EngineConstants.F1] = EMPTY
                     board[EngineConstants.H1] = W_ROOK
+
+                    bitboards[W_ROOK] = BitboardUtils.clearBit(bitboards[W_ROOK], EngineConstants.F1)
+                    bitboards[W_ROOK] = BitboardUtils.setBit(bitboards[W_ROOK], EngineConstants.H1)
+                    occupancies[WHITE] = BitboardUtils.clearBit(occupancies[WHITE], EngineConstants.F1)
+                    occupancies[WHITE] = BitboardUtils.setBit(occupancies[WHITE], EngineConstants.H1)
                 }
                 EngineConstants.C1 -> {
                     board[EngineConstants.D1] = EMPTY
                     board[EngineConstants.A1] = W_ROOK
+
+                    bitboards[W_ROOK] = BitboardUtils.clearBit(bitboards[W_ROOK], EngineConstants.D1)
+                    bitboards[W_ROOK] = BitboardUtils.setBit(bitboards[W_ROOK], EngineConstants.A1)
+                    occupancies[WHITE] = BitboardUtils.clearBit(occupancies[WHITE], EngineConstants.D1)
+                    occupancies[WHITE] = BitboardUtils.setBit(occupancies[WHITE], EngineConstants.A1)
                 }
                 EngineConstants.G8 -> {
                     board[EngineConstants.F8] = EMPTY
                     board[EngineConstants.H8] = B_ROOK
+
+                    bitboards[B_ROOK] = BitboardUtils.clearBit(bitboards[B_ROOK], EngineConstants.F8)
+                    bitboards[B_ROOK] = BitboardUtils.setBit(bitboards[B_ROOK], EngineConstants.H8)
+                    occupancies[BLACK] = BitboardUtils.clearBit(occupancies[BLACK], EngineConstants.F8)
+                    occupancies[BLACK] = BitboardUtils.setBit(occupancies[BLACK], EngineConstants.H8)
                 }
                 EngineConstants.C8 -> {
                     board[EngineConstants.D8] = EMPTY
                     board[EngineConstants.A8] = B_ROOK
+
+                    bitboards[B_ROOK] = BitboardUtils.clearBit(bitboards[B_ROOK], EngineConstants.D8)
+                    bitboards[B_ROOK] = BitboardUtils.setBit(bitboards[B_ROOK], EngineConstants.A8)
+                    occupancies[BLACK] = BitboardUtils.clearBit(occupancies[BLACK], EngineConstants.D8)
+                    occupancies[BLACK] = BitboardUtils.setBit(occupancies[BLACK], EngineConstants.A8)
                 }
             }
         }
+
+        // Update combined occupancy
+        occupancies[BOTH] = occupancies[WHITE] or occupancies[BLACK]
     }
 
     fun findKing(color: Int): Int {
@@ -449,6 +546,6 @@ class BoardState {
     }
 
     fun isSquareAttacked(sq: Int, byColor: Int): Boolean {
-        return AttackTables.isSquareAttacked(sq, byColor, getOccupancy(BOTH), board)
+        return AttackTables.isSquareAttacked(sq, byColor, getOccupancy(BOTH), this)
     }
 }

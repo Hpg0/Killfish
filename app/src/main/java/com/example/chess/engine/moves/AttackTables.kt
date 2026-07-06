@@ -3,6 +3,7 @@ package com.example.chess.engine.moves
 import com.example.chess.engine.EngineConstants.WHITE
 import com.example.chess.engine.EngineConstants.BLACK
 import com.example.chess.engine.board.BitboardUtils
+import com.example.chess.engine.board.BoardState
 
 object AttackTables {
     val pawnAttacks = Array(2) { LongArray(64) }
@@ -115,6 +116,33 @@ object AttackTables {
 
     fun getQueenAttacks(sq: Int, occupied: Long): Long {
         return getBishopAttacks(sq, occupied) or getRookAttacks(sq, occupied)
+    }
+
+    fun isSquareAttacked(sq: Int, byColor: Int, occupied: Long, boardState: BoardState): Boolean {
+        // 1. Attacked by pawns of opposite color
+        val pawnCode = if (byColor == WHITE) com.example.chess.engine.EngineConstants.W_PAWN else com.example.chess.engine.EngineConstants.B_PAWN
+        if ((pawnAttacks[byColor xor 1][sq] and boardState.bitboards[pawnCode]) != 0L) return true
+
+        // 2. Attacked by Knights
+        val knightCode = if (byColor == WHITE) com.example.chess.engine.EngineConstants.W_KNIGHT else com.example.chess.engine.EngineConstants.B_KNIGHT
+        if ((knightAttacks[sq] and boardState.bitboards[knightCode]) != 0L) return true
+
+        // 3. Attacked by Bishops/Queens
+        val bishopAttacks = getBishopAttacks(sq, occupied)
+        val bishopCode = if (byColor == WHITE) com.example.chess.engine.EngineConstants.W_BISHOP else com.example.chess.engine.EngineConstants.B_BISHOP
+        val queenCode = if (byColor == WHITE) com.example.chess.engine.EngineConstants.W_QUEEN else com.example.chess.engine.EngineConstants.B_QUEEN
+        if ((bishopAttacks and (boardState.bitboards[bishopCode] or boardState.bitboards[queenCode])) != 0L) return true
+
+        // 4. Attacked by Rooks/Queens
+        val rookAttacks = getRookAttacks(sq, occupied)
+        val rookCode = if (byColor == WHITE) com.example.chess.engine.EngineConstants.W_ROOK else com.example.chess.engine.EngineConstants.B_ROOK
+        if ((rookAttacks and (boardState.bitboards[rookCode] or boardState.bitboards[queenCode])) != 0L) return true
+
+        // 5. Attacked by King
+        val kingCode = if (byColor == WHITE) com.example.chess.engine.EngineConstants.W_KING else com.example.chess.engine.EngineConstants.B_KING
+        if ((kingAttacks[sq] and boardState.bitboards[kingCode]) != 0L) return true
+
+        return false
     }
 
     fun isSquareAttacked(sq: Int, byColor: Int, occupied: Long, board: IntArray): Boolean {

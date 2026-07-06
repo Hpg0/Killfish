@@ -220,7 +220,7 @@ object MoveGenerator {
             if (state.board[kingSq] != EngineConstants.W_KING) return
             
             // Check if king is currently in check
-            if (AttackTables.isSquareAttacked(kingSq, BLACK, occupied, state.board)) return
+            if (AttackTables.isSquareAttacked(kingSq, BLACK, occupied, state)) return
 
             // King-side
             if ((state.castlingRights and EngineConstants.CASTLE_WK) != 0) {
@@ -249,7 +249,7 @@ object MoveGenerator {
             if (state.board[kingSq] != EngineConstants.B_KING) return
 
             // Check if king is currently in check
-            if (AttackTables.isSquareAttacked(kingSq, WHITE, occupied, state.board)) return
+            if (AttackTables.isSquareAttacked(kingSq, WHITE, occupied, state)) return
 
             // King-side
             if ((state.castlingRights and EngineConstants.CASTLE_BK) != 0) {
