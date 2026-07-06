@@ -1,0 +1,6 @@
+{
+  "name": "Kill Fish",
+  "description": "Kill Fish is a professional chess engine and analysis app featuring a hybrid piece array + bitboard representation engine, alpha-beta search, Zobrist hashing, and a beautiful Material Design 3 UI with legal move highlighting, position evaluation, board editor, FEN/PGN utilities, and statistics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

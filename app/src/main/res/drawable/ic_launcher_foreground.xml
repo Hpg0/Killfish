@@ -1,0 +1,33 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Centered safe-zone drawing of a gorgeous stylized chess knight piece -->
+    <group
+        android:translateX="14.0"
+        android:translateY="14.0">
+        <!-- Base of the Knight -->
+        <path
+            android:fillColor="#ECECD7"
+            android:pathData="M 12,68 L 68,68 C 68,68 64,62 60,62 L 20,62 C 16,62 12,68 12,68 Z" />
+        <path
+            android:fillColor="#D8D8BE"
+            android:pathData="M 16,62 L 64,62 C 64,62 60,56 56,56 L 24,56 C 20,56 16,62 16,62 Z" />
+        
+        <!-- Knight Body -->
+        <path
+            android:fillColor="#ECECD7"
+            android:pathData="M 22,56 C 22,56 16,36 24,24 C 28,18 36,14 42,12 C 48,10 56,12 56,12 C 56,12 52,18 48,18 C 58,18 64,26 62,34 C 60,42 54,48 54,48 L 56,56 Z" />
+        
+        <!-- Mane details and highlights -->
+        <path
+            android:fillColor="#739552"
+            android:pathData="M 52,16 C 52,16 46,22 42,22 C 38,22 36,20 36,20 C 36,20 38,26 44,26 C 50,26 52,16 52,16 Z" />
+        
+        <!-- Eye -->
+        <path
+            android:fillColor="#1A2332"
+            android:pathData="M 32,24 A 2.5,2.5 0 1,1 27,24 A 2.5,2.5 0 1,1 32,24 Z" />
+    </group>
+</vector>
