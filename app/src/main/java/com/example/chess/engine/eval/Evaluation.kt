@@ -172,56 +172,59 @@ object Evaluation {
 
         var gamePhaseValue = 0
 
-        // 1. Material and Positional (PST) scoring
-        for (sq in 0..63) {
-            val p = state.board[sq]
-            if (p == EMPTY) continue
-
+        // 1. Material and Positional (PST) scoring via Bitboards
+        for (p in 1..12) {
+            var bb = state.bitboards[p]
+            if (bb == 0L) continue
             val color = EngineConstants.colorOf(p)
             val type = EngineConstants.typeOf(p)
+            while (bb != 0L) {
+                val sq = com.example.chess.engine.board.BitboardUtils.getLSB(bb)
+                bb = bb and (bb - 1)
 
-            val relativeSq = if (color == WHITE) sq else sq xor 56 // Mirror rank for black
+                val relativeSq = if (color == WHITE) sq else sq xor 56 // Mirror rank for black
 
-            var pieceMg = 0
-            var pieceEg = 0
+                var pieceMg = 0
+                var pieceEg = 0
 
-            when (type) {
-                PAWN -> {
-                    pieceMg = VAL_PAWN + pstPawnMG[relativeSq]
-                    pieceEg = VAL_PAWN + pstPawnEG[relativeSq]
+                when (type) {
+                    PAWN -> {
+                        pieceMg = VAL_PAWN + pstPawnMG[relativeSq]
+                        pieceEg = VAL_PAWN + pstPawnEG[relativeSq]
+                    }
+                    KNIGHT -> {
+                        pieceMg = VAL_KNIGHT + pstKnightMG[relativeSq]
+                        pieceEg = VAL_KNIGHT + pstKnightEG[relativeSq]
+                        gamePhaseValue += KNIGHT_PHASE_WT
+                    }
+                    BISHOP -> {
+                        pieceMg = VAL_BISHOP + pstBishopMG[relativeSq]
+                        pieceEg = VAL_BISHOP + pstBishopEG[relativeSq]
+                        gamePhaseValue += BISHOP_PHASE_WT
+                    }
+                    ROOK -> {
+                        pieceMg = VAL_ROOK + pstRookMG[relativeSq]
+                        pieceEg = VAL_ROOK + pstRookEG[relativeSq]
+                        gamePhaseValue += ROOK_PHASE_WT
+                    }
+                    QUEEN -> {
+                        pieceMg = VAL_QUEEN + pstQueenMG[relativeSq]
+                        pieceEg = VAL_QUEEN + pstQueenEG[relativeSq]
+                        gamePhaseValue += QUEEN_PHASE_WT
+                    }
+                    KING -> {
+                        pieceMg = VAL_KING + pstKingMG[relativeSq]
+                        pieceEg = VAL_KING + pstKingEG[relativeSq]
+                    }
                 }
-                KNIGHT -> {
-                    pieceMg = VAL_KNIGHT + pstKnightMG[relativeSq]
-                    pieceEg = VAL_KNIGHT + pstKnightEG[relativeSq]
-                    gamePhaseValue += KNIGHT_PHASE_WT
-                }
-                BISHOP -> {
-                    pieceMg = VAL_BISHOP + pstBishopMG[relativeSq]
-                    pieceEg = VAL_BISHOP + pstBishopEG[relativeSq]
-                    gamePhaseValue += BISHOP_PHASE_WT
-                }
-                ROOK -> {
-                    pieceMg = VAL_ROOK + pstRookMG[relativeSq]
-                    pieceEg = VAL_ROOK + pstRookEG[relativeSq]
-                    gamePhaseValue += ROOK_PHASE_WT
-                }
-                QUEEN -> {
-                    pieceMg = VAL_QUEEN + pstQueenMG[relativeSq]
-                    pieceEg = VAL_QUEEN + pstQueenEG[relativeSq]
-                    gamePhaseValue += QUEEN_PHASE_WT
-                }
-                KING -> {
-                    pieceMg = VAL_KING + pstKingMG[relativeSq]
-                    pieceEg = VAL_KING + pstKingEG[relativeSq]
-                }
-            }
 
-            if (color == WHITE) {
-                mgWhite += pieceMg
-                egWhite += pieceEg
-            } else {
-                mgBlack += pieceMg
-                egBlack += pieceEg
+                if (color == WHITE) {
+                    mgWhite += pieceMg
+                    egWhite += pieceEg
+                } else {
+                    mgBlack += pieceMg
+                    egBlack += pieceEg
+                }
             }
         }
 

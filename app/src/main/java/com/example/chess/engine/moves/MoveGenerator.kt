@@ -34,9 +34,10 @@ object MoveGenerator {
         val them = us xor 1
         val occupied = state.getOccupancy(BOTH)
 
-        for (sq in 0..63) {
+        var bitboard = state.getOccupancy(us)
+        while (bitboard != 0L) {
+            val sq = BitboardUtils.getLSB(bitboard)
             val p = state.board[sq]
-            if (p == EMPTY || EngineConstants.colorOf(p) != us) continue
             val type = EngineConstants.typeOf(p)
 
             when (type) {
@@ -47,6 +48,7 @@ object MoveGenerator {
                 QUEEN -> generateQueenMoves(sq, them, state, occupied, moves)
                 KING -> generateKingMoves(sq, them, state, occupied, moves)
             }
+            bitboard = bitboard and (bitboard - 1)
         }
 
         generateCastlingMoves(us, state, occupied, moves)

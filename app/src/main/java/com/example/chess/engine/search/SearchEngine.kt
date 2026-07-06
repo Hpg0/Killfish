@@ -334,11 +334,16 @@ class SearchEngine(private val tt: TranspositionTable = TranspositionTable()) {
     }
 
     private fun hasMajorPieces(state: BoardState, color: Int): Boolean {
-        // Returns true if color has anything on board other than King and Pawns
-        val targetRange = if (color == WHITE) EngineConstants.W_KNIGHT..EngineConstants.W_QUEEN else EngineConstants.B_KNIGHT..EngineConstants.B_QUEEN
-        for (sq in 0..63) {
-            if (state.board[sq] in targetRange) return true
+        return if (color == WHITE) {
+            (state.bitboards[EngineConstants.W_KNIGHT] or
+             state.bitboards[EngineConstants.W_BISHOP] or
+             state.bitboards[EngineConstants.W_ROOK] or
+             state.bitboards[EngineConstants.W_QUEEN]) != 0L
+        } else {
+            (state.bitboards[EngineConstants.B_KNIGHT] or
+             state.bitboards[EngineConstants.B_BISHOP] or
+             state.bitboards[EngineConstants.B_ROOK] or
+             state.bitboards[EngineConstants.B_QUEEN]) != 0L
         }
-        return false
     }
 }
