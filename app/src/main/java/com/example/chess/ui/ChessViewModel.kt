@@ -29,6 +29,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.example.chess.utils.ChessAudioSynth
@@ -43,6 +46,7 @@ data class AdInfo(
     val link: String
 )
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ChessViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs = application.getSharedPreferences("killfish_prefs", Context.MODE_PRIVATE)
@@ -50,13 +54,54 @@ class ChessViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: ChessRepository
     val allGames: StateFlow<List<GameEntity>>
     val statistics: StateFlow<StatisticEntity?>
+    val currentUser: StateFlow<com.example.chess.db.UserEntity?>
+    val trapHistoryList: StateFlow<List<com.example.chess.db.TrapHistoryEntity>>
+
+    private val _currentUserIdState = kotlinx.coroutines.flow.MutableStateFlow(prefs.getLong("current_user_id", -1L))
+    var currentUserId: Long
+        get() = _currentUserIdState.value
+        set(value) {
+            _currentUserIdState.value = value
+            prefs.edit().putLong("current_user_id", value).apply()
+            isUserSignedIn = (value != -1L)
+            if (value != -1L) {
+                viewModelScope.launch {
+                    val user = repository.getUserById(value).firstOrNull()
+                    if (user != null) {
+                        userAccountName = user.username
+                        userAccountEmail = user.email
+                    }
+                }
+            }
+            // Fetch available users list
+            viewModelScope.launch {
+                availableUsers = repository.getAllUsers()
+            }
+        }
+
+    var availableUsers by mutableStateOf<List<com.example.chess.db.UserEntity>>(emptyList())
 
     // Master Engine State
     val boardState = BoardState()
     private val searchEngine = SearchEngine()
 
     // Screen State
-    var activeScreen by mutableStateOf(if (prefs.getBoolean("onboarding_completed", false)) "home" else "onboarding") // "home", "play", "editor", "explorer", "saved_games", "stats", "settings", "onboarding"
+    var activeScreen by mutableStateOf(
+        if (!prefs.getBoolean("has_chosen_auth_profile", false)) {
+            "google_auth_choice"
+        } else {
+            val tag = prefs.getString("player_tag", "Guest") ?: "Guest"
+            val completed = prefs.getBoolean("tutorial_completed", false)
+            val showTutorial = when {
+                tag == "New Player" -> true
+                tag == "Guest" && !completed -> true
+                tag == "Old Player" -> false
+                completed -> false
+                else -> false
+            }
+            if (showTutorial) "onboarding" else "home"
+        }
+    ) // "home", "play", "editor", "explorer", "saved_games", "stats", "settings", "onboarding", "google_auth_choice"
     
     // Chess Onboarding Preferences
     private var _userChessLevelState = mutableStateOf(prefs.getString("user_chess_level", "Beginner") ?: "Beginner")
@@ -75,14 +120,35 @@ class ChessViewModel(application: Application) : AndroidViewModel(application) {
             prefs.edit().putString("user_chess_reason", value).apply()
         }
 
-    private var _userHasCompletedOnboardingState = mutableStateOf(prefs.getBoolean("onboarding_completed", false))
+    private var _userHasCompletedOnboardingState = mutableStateOf(prefs.getBoolean("onboarding_completed", true))
     var userHasCompletedOnboarding: Boolean
         get() = _userHasCompletedOnboardingState.value
         set(value) {
             _userHasCompletedOnboardingState.value = value
             prefs.edit().putBoolean("onboarding_completed", value).apply()
-            activeScreen = if (value) "home" else "onboarding"
+            if (value) {
+                tutorialCompleted = true
+                activeScreen = "home"
+            } else {
+                activeScreen = "onboarding"
+            }
         }
+
+    fun determineNextScreenAfterAuth() {
+        val showOnboarding = when {
+            playerTag == "New Player" -> true
+            playerTag == "Guest" && !tutorialCompleted -> true
+            playerTag == "Old Player" -> false
+            tutorialCompleted -> false
+            else -> false
+        }
+        if (showOnboarding) {
+            activeScreen = "onboarding"
+        } else {
+            userHasCompletedOnboarding = true
+            activeScreen = "home"
+        }
+    }
     
     // UI Game State
     var boardRepresentation by mutableStateOf(IntArray(64))
@@ -191,6 +257,48 @@ class ChessViewModel(application: Application) : AndroidViewModel(application) {
             prefs.edit().putString("user_account_name", value).apply()
         }
 
+    // Player Tag System & Google Authentication State
+    private var _playerTagState = mutableStateOf(prefs.getString("player_tag", "Guest") ?: "Guest")
+    var playerTag: String
+        get() = _playerTagState.value
+        set(value) {
+            _playerTagState.value = value
+            prefs.edit().putString("player_tag", value).apply()
+            if (value == "New Player") {
+                premiumUpgraded = true
+            } else if (value == "Old Player" || value == "Guest") {
+                if (premiumUpgraded && !prefs.getBoolean("premium_upgraded_manually", false)) {
+                    premiumUpgraded = false
+                }
+            }
+        }
+
+    private var _firstGoogleSignInTimeState = mutableStateOf(prefs.getLong("first_google_signin_time", 0L))
+    var firstGoogleSignInTime: Long
+        get() = _firstGoogleSignInTimeState.value
+        set(value) {
+            _firstGoogleSignInTimeState.value = value
+            prefs.edit().putLong("first_google_signin_time", value).apply()
+        }
+
+    private var _tutorialCompletedState = mutableStateOf(prefs.getBoolean("tutorial_completed", false))
+    var tutorialCompleted: Boolean
+        get() = _tutorialCompletedState.value
+        set(value) {
+            _tutorialCompletedState.value = value
+            prefs.edit().putBoolean("tutorial_completed", value).apply()
+        }
+
+    private var _hasChosenAuthProfileState = mutableStateOf(prefs.getBoolean("has_chosen_auth_profile", false))
+    var hasChosenAuthProfile: Boolean
+        get() = _hasChosenAuthProfileState.value
+        set(value) {
+            _hasChosenAuthProfileState.value = value
+            prefs.edit().putBoolean("has_chosen_auth_profile", value).apply()
+        }
+
+    var premiumTrialTimeRemainingStr by mutableStateOf("10:00")
+
     private var _lastBackupTimeState = mutableStateOf(prefs.getString("last_backup_time", "Never") ?: "Never")
     var lastBackupTime: String
         get() = _lastBackupTimeState.value
@@ -201,12 +309,191 @@ class ChessViewModel(application: Application) : AndroidViewModel(application) {
 
     var backupStatus by mutableStateOf("Ready to synchronize with secure cloud storage")
 
+    fun hashPassword(password: String): String {
+        return try {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val hash = digest.digest(password.toByteArray(Charsets.UTF_8))
+            val hexString = StringBuilder()
+            for (b in hash) {
+                val hex = Integer.toHexString(0xff and b.toInt())
+                if (hex.length == 1) hexString.append('0')
+                hexString.append(hex)
+            }
+            hexString.toString()
+        } catch (ex: Exception) {
+            password
+        }
+    }
+
+    suspend fun registerNewUser(username: String, email: String, passwordRaw: String, avatar: String): String? {
+        return withContext(Dispatchers.IO) {
+            val existing = repository.getUserByEmail(email)
+            if (existing != null) {
+                return@withContext "Email is already registered!"
+            }
+            val hashed = hashPassword(passwordRaw)
+            val newUser = com.example.chess.db.UserEntity(
+                username = username,
+                email = email,
+                passwordHash = hashed,
+                avatarEmoji = avatar
+            )
+            val newId = repository.registerUser(newUser)
+            
+            // Seed stats for the user
+            val stats = StatisticEntity(id = "user_$newId", userId = newId)
+            repository.updateStatistics(stats)
+
+            withContext(Dispatchers.Main) {
+                currentUserId = newId
+            }
+            null
+        }
+    }
+
+    suspend fun loginUser(email: String, passwordRaw: String): String? {
+        return withContext(Dispatchers.IO) {
+            val user = repository.getUserByEmail(email) ?: return@withContext "Account email not registered."
+            val hashed = hashPassword(passwordRaw)
+            if (user.passwordHash != hashed) {
+                return@withContext "Invalid password!"
+            }
+            withContext(Dispatchers.Main) {
+                currentUserId = user.id
+            }
+            null
+        }
+    }
+
+    fun switchUser(userId: Long) {
+        currentUserId = userId
+    }
+
+    fun logOutUser() {
+        currentUserId = -1L
+        userAccountEmail = ""
+        userAccountName = ""
+        lastBackupTime = "Never"
+        backupStatus = "Local mode active (Guest)"
+    }
+
+    fun signInWithGoogleAccount(name: String, email: String, avatar: String = "👤") {
+        viewModelScope.launch(Dispatchers.IO) {
+            var user = repository.getUserByEmail(email)
+            if (user == null) {
+                val newUser = com.example.chess.db.UserEntity(
+                    username = name,
+                    email = email,
+                    passwordHash = "",
+                    avatarEmoji = avatar,
+                    eloRating = 1200
+                )
+                val newId = repository.registerUser(newUser)
+                user = newUser.copy(id = newId)
+            }
+            
+            withContext(Dispatchers.Main) {
+                currentUserId = user!!.id
+                val savedFirstTime = prefs.getLong("first_google_signin_time", 0L)
+                if (savedFirstTime == 0L) {
+                    val now = System.currentTimeMillis()
+                    firstGoogleSignInTime = now
+                    playerTag = "New Player"
+                } else {
+                    val elapsed = System.currentTimeMillis() - savedFirstTime
+                    if (elapsed < 10 * 60 * 1000L) {
+                        playerTag = "New Player"
+                        firstGoogleSignInTime = savedFirstTime
+                    } else {
+                        playerTag = "Old Player"
+                        firstGoogleSignInTime = savedFirstTime
+                    }
+                }
+                isUserSignedIn = true
+                determineNextScreenAfterAuth()
+            }
+        }
+    }
+
+    fun signOutGoogleUser() {
+        logOutUser()
+        playerTag = "Guest"
+    }
+
+    fun saveTrapToHistory(fen: String, trapName: String, description: String, motif: String, dangerousMoves: String, continuation: String, evaluation: String) {
+        viewModelScope.launch {
+            val entity = com.example.chess.db.TrapHistoryEntity(
+                userId = currentUserId,
+                fen = fen,
+                trapName = trapName,
+                description = description,
+                motif = motif,
+                dangerousMoves = dangerousMoves,
+                continuation = continuation,
+                evaluation = evaluation
+            )
+            repository.saveTrapHistory(entity)
+        }
+    }
+
+    fun clearAllTrapHistory() {
+        viewModelScope.launch {
+            repository.clearTrapHistory()
+        }
+    }
+
+    fun updateCurrentUserEloAndStats(userWon: Boolean, draw: Boolean, opponentRating: Int) {
+        val user = currentUser.value ?: return
+        val currentElo = user.eloRating
+        
+        val kFactor = 32
+        val expectedScore = 1.0 / (1.0 + Math.pow(10.0, (opponentRating - currentElo).toDouble() / 400.0))
+        val actualScore = if (userWon) 1.0 else if (draw) 0.5 else 0.0
+        val ratingChange = (kFactor * (actualScore - expectedScore)).toInt()
+        val newElo = (currentElo + ratingChange).coerceAtLeast(100)
+
+        val newWins = if (userWon && !draw) user.wins + 1 else user.wins
+        val newLosses = if (!userWon && !draw) user.losses + 1 else user.losses
+        val newDraws = if (draw) user.draws + 1 else user.draws
+        val newGames = user.gamesPlayed + 1
+
+        val updatedUser = user.copy(
+            eloRating = newElo,
+            wins = newWins,
+            losses = newLosses,
+            draws = newDraws,
+            gamesPlayed = newGames
+        )
+
+        viewModelScope.launch {
+            repository.updateUser(updatedUser)
+        }
+    }
+
     fun signInUser(email: String, name: String, context: Context) {
         userAccountEmail = email
         userAccountName = name
         isUserSignedIn = true
         backupStatus = "Syncing initially..."
         viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                var user = repository.getUserByEmail(email)
+                if (user == null) {
+                    val hashed = hashPassword("password123")
+                    val newId = repository.registerUser(
+                        com.example.chess.db.UserEntity(
+                            username = name,
+                            email = email,
+                            passwordHash = hashed,
+                            avatarEmoji = "👤"
+                        )
+                    )
+                    user = com.example.chess.db.UserEntity(id = newId, username = name, email = email, passwordHash = hashed)
+                }
+                withContext(Dispatchers.Main) {
+                    currentUserId = user.id
+                }
+            }
             kotlinx.coroutines.delay(1000)
             val formatter = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
             lastBackupTime = formatter.format(java.util.Date())
@@ -216,11 +503,7 @@ class ChessViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun signOutUser() {
-        isUserSignedIn = false
-        userAccountEmail = ""
-        userAccountName = ""
-        lastBackupTime = "Never"
-        backupStatus = "Logged out"
+        logOutUser()
     }
 
     fun syncBackupNow(context: Context) {
@@ -374,21 +657,72 @@ class ChessViewModel(application: Application) : AndroidViewModel(application) {
         val database = ChessDatabase.getDatabase(application)
         repository = ChessRepository(database.chessDao())
         
-        allGames = repository.allGames.stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+        allGames = _currentUserIdState
+            .flatMapLatest { userId ->
+                if (userId == -1L) repository.allGames else repository.getAllGamesForUser(userId)
+            }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList()
+            )
         
-        statistics = repository.statistics.stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = null
-        )
+        statistics = _currentUserIdState
+            .flatMapLatest { userId ->
+                if (userId == -1L) repository.statistics else repository.getStatisticsForUser(userId)
+            }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = null
+            )
 
-        // Seed initial aggregate stats if not exists
+        currentUser = _currentUserIdState
+            .flatMapLatest { userId ->
+                if (userId == -1L) flowOf(null) else repository.getUserById(userId)
+            }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = null
+            )
+
+        trapHistoryList = _currentUserIdState
+            .flatMapLatest { userId ->
+                repository.getTrapHistoryForUser(userId)
+            }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList()
+            )
+
+        // Periodic check for trial expiration (every second)
+        viewModelScope.launch {
+            while (true) {
+                if (playerTag == "New Player" && firstGoogleSignInTime > 0L) {
+                    val elapsed = System.currentTimeMillis() - firstGoogleSignInTime
+                    val totalTrial = 10 * 60 * 1000L // 10 minutes
+                    val remaining = totalTrial - elapsed
+                    if (remaining <= 0) {
+                        playerTag = "Old Player"
+                        premiumTrialTimeRemainingStr = "Expired"
+                    } else {
+                        val minutes = (remaining / 1000) / 60
+                        val seconds = (remaining / 1000) % 60
+                        premiumTrialTimeRemainingStr = String.format("%02d:%02d", minutes, seconds)
+                    }
+                } else {
+                    premiumTrialTimeRemainingStr = "N/A"
+                }
+                kotlinx.coroutines.delay(1000)
+            }
+        }
+
+        // Seed initial aggregate stats if not exists and load users
         viewModelScope.launch {
             repository.updateStatistics(StatisticEntity())
+            availableUsers = repository.getAllUsers()
         }
 
         // Initialize Achievements List
@@ -495,17 +829,18 @@ class ChessViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun saveGameOnFinish(result: String) {
         viewModelScope.launch {
-            val stats = statistics.value ?: StatisticEntity()
+            val stats = statistics.value ?: StatisticEntity(userId = currentUserId)
             val newStats = when (result) {
-                "1-0" -> if (playerColor == WHITE) stats.copy(wins = stats.wins + 1, gamesPlayed = stats.gamesPlayed + 1) else stats.copy(losses = stats.losses + 1, gamesPlayed = stats.gamesPlayed + 1)
-                "0-1" -> if (playerColor == BLACK) stats.copy(wins = stats.wins + 1, gamesPlayed = stats.gamesPlayed + 1) else stats.copy(losses = stats.losses + 1, gamesPlayed = stats.gamesPlayed + 1)
-                "1/2-1/2" -> stats.copy(draws = stats.draws + 1, gamesPlayed = stats.gamesPlayed + 1)
+                "1-0" -> if (playerColor == WHITE) stats.copy(userId = currentUserId, wins = stats.wins + 1, gamesPlayed = stats.gamesPlayed + 1) else stats.copy(userId = currentUserId, losses = stats.losses + 1, gamesPlayed = stats.gamesPlayed + 1)
+                "0-1" -> if (playerColor == BLACK) stats.copy(userId = currentUserId, wins = stats.wins + 1, gamesPlayed = stats.gamesPlayed + 1) else stats.copy(userId = currentUserId, losses = stats.losses + 1, gamesPlayed = stats.gamesPlayed + 1)
+                "1/2-1/2" -> stats.copy(userId = currentUserId, draws = stats.draws + 1, gamesPlayed = stats.gamesPlayed + 1)
                 else -> stats
             }
             repository.updateStatistics(newStats)
             
             // Check challenge system streak: Defeating KillFish 3 consecutive times on depth >= 5 (Hard or above)
             val userWon = (result == "1-0" && playerColor == WHITE) || (result == "0-1" && playerColor == BLACK)
+            val draw = result == "1/2-1/2"
             val userLost = (result == "0-1" && playerColor == WHITE) || (result == "1-0" && playerColor == BLACK)
             if (userWon && engineDepth >= 5) {
                 consecutiveWinsCount = consecutiveWinsCount + 1
@@ -519,16 +854,22 @@ class ChessViewModel(application: Application) : AndroidViewModel(application) {
                 consecutiveWinsCount = 0 // broke streak
             }
 
+            // Real Rating System: update User Elo in database if signed in
+            if (currentUserId != -1L) {
+                updateCurrentUserEloAndStats(userWon, draw, opponentRating = selectedBot?.rating ?: (engineDepth * 250 + 1000))
+            }
+
             // Save to database
-            val title = "Game vs Engine - Depth $engineDepth"
+            val title = if (selectedBot != null) "Game vs ${selectedBot!!.name}" else "Game vs Engine - Depth $engineDepth"
             val pgn = PgnParser.generatePgn(
                 result = result,
-                whitePlayer = if (playerColor == WHITE) "Player" else "Kill Fish Engine",
-                blackPlayer = if (playerColor == BLACK) "Player" else "Kill Fish Engine",
+                whitePlayer = if (playerColor == WHITE) (currentUser.value?.username ?: "Player") else (selectedBot?.name ?: "Kill Fish Engine"),
+                blackPlayer = if (playerColor == BLACK) (currentUser.value?.username ?: "Player") else (selectedBot?.name ?: "Kill Fish Engine"),
                 playedMoves = playedMoves
             )
             repository.saveGame(
                 GameEntity(
+                    userId = currentUserId,
                     title = title,
                     pgn = pgn,
                     initialFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",

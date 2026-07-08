@@ -60,25 +60,46 @@ fun OnboardingScreen(viewModel: ChessViewModel) {
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            // KillFish logo header
+            // KillFish logo header with Skip Option
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Icon(
-                    imageVector = Icons.Default.Psychology,
-                    contentDescription = "Neural Core",
-                    tint = colors.primary,
-                    modifier = Modifier.size(36.dp)
-                )
-                Text(
-                    text = "KILLFISH COGNITION SYSTEM",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.5.sp
-                    ),
-                    color = colors.primary
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Psychology,
+                        contentDescription = "Neural Core",
+                        tint = colors.primary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Text(
+                        text = "KILLFISH COGNITION SYSTEM",
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.2.sp
+                        ),
+                        color = colors.primary
+                    )
+                }
+                TextButton(
+                    onClick = {
+                        viewModel.userHasCompletedOnboarding = true
+                    },
+                    modifier = Modifier.testTag("onboarding_skip_button")
+                ) {
+                    Text("Skip", color = colors.primary, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Default.ArrowForward,
+                        contentDescription = "Skip",
+                        tint = colors.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
 
             // Step Indicator

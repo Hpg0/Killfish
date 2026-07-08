@@ -51,6 +51,7 @@ import com.example.chess.ui.PieceGraphic
 import com.example.ui.theme.KillFishTheme
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val viewModel: ChessViewModel by viewModels()
@@ -71,7 +72,7 @@ fun MainAppLayout(viewModel: ChessViewModel) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
-            if (viewModel.activeScreen != "onboarding") {
+            if (viewModel.activeScreen != "onboarding" && viewModel.activeScreen != "google_auth_choice") {
                 NavigationBar(
                     modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars)
                 ) {
@@ -132,12 +133,15 @@ fun MainAppLayout(viewModel: ChessViewModel) {
                     "saved_games" -> SavedGamesScreen(viewModel)
                     "stats" -> StatsDiagnosticsScreen(viewModel)
                     "settings" -> SettingsScreen(viewModel)
+                    "multiplayer" -> com.example.chess.ui.MultiplayerScreen(viewModel)
                     "library" -> com.example.chess.ui.ChessLibraryScreen(viewModel)
                     "offline_trainer" -> com.example.chess.ui.OfflineTrainerScreen(viewModel)
                     "onboarding" -> com.example.chess.ui.OnboardingScreen(viewModel)
+                    "google_auth_choice" -> com.example.chess.ui.GoogleAuthChoiceScreen(viewModel)
+                    "chess_traps" -> com.example.chess.ui.ChessTrapScreen(viewModel)
                 }
             }
-            if (viewModel.activeScreen != "settings" && viewModel.activeScreen != "premium" && viewModel.activeScreen != "chatbot" && viewModel.activeScreen != "home" && viewModel.activeScreen != "onboarding") {
+            if (viewModel.activeScreen != "settings" && viewModel.activeScreen != "premium" && viewModel.activeScreen != "chatbot" && viewModel.activeScreen != "home" && viewModel.activeScreen != "onboarding" && viewModel.activeScreen != "google_auth_choice") {
                 AdBanner(viewModel = viewModel)
             }
         }
@@ -2716,11 +2720,19 @@ fun SettingsScreen(viewModel: ChessViewModel) {
 
 
 
-        // Account & Cloud Data Safety Card
+        // Account & Cloud Data Safety Card (Real Database-Driven Accounts)
         item {
             val context = LocalContext.current
-            var inputEmail by remember { mutableStateOf("harshitpremi09@gmail.com") }
-            var inputName by remember { mutableStateOf("Harshit Premi") }
+            val coroutineScope = rememberCoroutineScope()
+            val userState = viewModel.currentUser.collectAsState()
+            val user = userState.value
+            
+            var isSignUpMode by remember { mutableStateOf(false) }
+            var inputEmail by remember { mutableStateOf("") }
+            var inputName by remember { mutableStateOf("") }
+            var inputPassword by remember { mutableStateOf("") }
+            var selectedAvatar by remember { mutableStateOf("👤") }
+            var showUserSwitcher by remember { mutableStateOf(false) }
 
             Card(
                 modifier = Modifier
@@ -2734,20 +2746,35 @@ fun SettingsScreen(viewModel: ChessViewModel) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CloudDone,
-                            contentDescription = "Cloud Account",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Text(
-                            text = "Account & Cloud Data Safety",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudDone,
+                                contentDescription = "Cloud Account",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = "Account & Cloud Data Safety",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        if (viewModel.isUserSignedIn && viewModel.availableUsers.size > 1) {
+                            TextButton(onClick = { showUserSwitcher = !showUserSwitcher }) {
+                                Icon(Icons.Default.SwitchAccount, contentDescription = "Switch")
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Switch User", fontSize = 12.sp)
+                            }
+                        }
                     }
+                    
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "Prevent data loss! Associate your account to secure all saved chess matches, Elo progress, and personalized analytical settings in our real-time cloud backup.",
@@ -2757,8 +2784,54 @@ fun SettingsScreen(viewModel: ChessViewModel) {
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    if (viewModel.isUserSignedIn) {
+                    // User Switcher Dialog Overlay
+                    if (showUserSwitcher && viewModel.availableUsers.isNotEmpty()) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    "Registered Local Profiles:",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                viewModel.availableUsers.forEach { localUser ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                com.example.chess.utils.ChessHaptics.playMoveHaptic(context)
+                                                viewModel.switchUser(localUser.id)
+                                                showUserSwitcher = false
+                                                android.widget.Toast.makeText(context, "Switched to ${localUser.username}!", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Text(localUser.avatarEmoji, fontSize = 20.sp)
+                                            Column {
+                                                Text(localUser.username, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                                                Text(localUser.email, style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                        Text("${localUser.eloRating} ELO", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (viewModel.isUserSignedIn && user != null) {
                         // User Account Active Details
+                        val u = user!!
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
@@ -2768,35 +2841,69 @@ fun SettingsScreen(viewModel: ChessViewModel) {
                             Column(modifier = Modifier.padding(12.dp)) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .background(MaterialTheme.colorScheme.primary, shape = CircleShape),
-                                        contentAlignment = Alignment.Center
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .background(MaterialTheme.colorScheme.primary, shape = CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(u.avatarEmoji, fontSize = 24.sp)
+                                        }
+                                        Column {
+                                            Text(
+                                                text = u.username,
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = u.email,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                    // Elo Badge
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                                     ) {
                                         Text(
-                                            text = viewModel.userAccountName.take(1).uppercase(),
-                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
-                                            color = MaterialTheme.colorScheme.onPrimary
-                                        )
-                                    }
-                                    Column {
-                                        Text(
-                                            text = viewModel.userAccountName,
-                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Text(
-                                            text = viewModel.userAccountEmail,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            text = "${u.eloRating} ELO",
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
                                         )
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(12.dp))
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val winrate = if (u.gamesPlayed > 0) {
+                                        val wr = (u.wins * 100) / u.gamesPlayed
+                                        "$wr%"
+                                    } else "0%"
+                                    Text(
+                                        text = "W: ${u.wins} | L: ${u.losses} | D: ${u.draws} ($winrate WR)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = "Games: ${u.gamesPlayed}",
+                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
                                 Divider(color = MaterialTheme.colorScheme.outlineVariant)
                                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -2853,7 +2960,7 @@ fun SettingsScreen(viewModel: ChessViewModel) {
                                     viewModel.signOutUser()
                                     android.widget.Toast.makeText(context, "Signed out from account. Local mode active.", android.widget.Toast.LENGTH_SHORT).show()
                                 },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1.2f),
                                 shape = RoundedCornerShape(10.dp)
                             ) {
                                 Row(
@@ -2866,48 +2973,106 @@ fun SettingsScreen(viewModel: ChessViewModel) {
                             }
                         }
                     } else {
-                        // Sign-In Form for backing up data
+                        // Sign-In & Registration forms
                         Column(
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            OutlinedTextField(
-                                value = inputName,
-                                onValueChange = { inputName = it },
-                                label = { Text("Enter Account Name") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                                )
+                            Text(
+                                text = if (isSignUpMode) "CREATE NEW MEMBER ACCOUNT" else "AUTHENTICATE MEMBER ACCOUNT",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, letterSpacing = 1.sp),
+                                color = MaterialTheme.colorScheme.primary
                             )
+
+                            if (isSignUpMode) {
+                                OutlinedTextField(
+                                    value = inputName,
+                                    onValueChange = { inputName = it },
+                                    label = { Text("Display Username") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                // Avatar emoji selector
+                                Text("Choose Your Avatar Icon:", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    listOf("👤", "🤖", "🦁", "🦊", "🦉", "🐺", "👽", "🚀").forEach { emoji ->
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(CircleShape)
+                                                .background(if (selectedAvatar == emoji) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
+                                                .border(BorderStroke(1.dp, if (selectedAvatar == emoji) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant), CircleShape)
+                                                .clickable { selectedAvatar = emoji },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(emoji, fontSize = 20.sp)
+                                        }
+                                    }
+                                }
+                            }
 
                             OutlinedTextField(
                                 value = inputEmail,
                                 onValueChange = { inputEmail = it },
                                 label = { Text("Account Backup Email") },
                                 singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                                )
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            OutlinedTextField(
+                                value = inputPassword,
+                                onValueChange = { inputPassword = it },
+                                label = { Text("Account Password") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
                             )
 
                             Spacer(modifier = Modifier.height(4.dp))
 
                             Button(
                                 onClick = {
-                                    if (inputEmail.trim().isEmpty() || inputName.trim().isEmpty()) {
-                                        android.widget.Toast.makeText(context, "Name and Email cannot be empty!", android.widget.Toast.LENGTH_SHORT).show()
+                                    if (inputEmail.trim().isEmpty() || inputPassword.trim().isEmpty() || (isSignUpMode && inputName.trim().isEmpty())) {
+                                        android.widget.Toast.makeText(context, "All account fields must be filled!", android.widget.Toast.LENGTH_SHORT).show()
                                         return@Button
                                     }
                                     if (!android.util.Patterns.EMAIL_ADDRESS.matcher(inputEmail.trim()).matches()) {
                                         android.widget.Toast.makeText(context, "Please enter a valid email address!", android.widget.Toast.LENGTH_SHORT).show()
                                         return@Button
                                     }
-                                    viewModel.signInUser(inputEmail.trim(), inputName.trim(), context)
-                                    android.widget.Toast.makeText(context, "Welcome, $inputName! Account synchronized.", android.widget.Toast.LENGTH_LONG).show()
+
+                                    coroutineScope.launch {
+                                        if (isSignUpMode) {
+                                            val error = viewModel.registerNewUser(
+                                                username = inputName.trim(),
+                                                email = inputEmail.trim(),
+                                                passwordRaw = inputPassword.trim(),
+                                                avatar = selectedAvatar
+                                            )
+                                            if (error != null) {
+                                                android.widget.Toast.makeText(context, error, android.widget.Toast.LENGTH_LONG).show()
+                                            } else {
+                                                android.widget.Toast.makeText(context, "Welcome, ${inputName.trim()}! Account created successfully.", android.widget.Toast.LENGTH_LONG).show()
+                                                inputEmail = ""
+                                                inputPassword = ""
+                                                inputName = ""
+                                            }
+                                        } else {
+                                            val error = viewModel.loginUser(
+                                                email = inputEmail.trim(),
+                                                passwordRaw = inputPassword.trim()
+                                            )
+                                            if (error != null) {
+                                                android.widget.Toast.makeText(context, error, android.widget.Toast.LENGTH_LONG).show()
+                                            } else {
+                                                android.widget.Toast.makeText(context, "Welcome back!", android.widget.Toast.LENGTH_LONG).show()
+                                                inputEmail = ""
+                                                inputPassword = ""
+                                            }
+                                        }
+                                    }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(10.dp)
@@ -2916,9 +3081,27 @@ fun SettingsScreen(viewModel: ChessViewModel) {
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.Login, contentDescription = "Sign In", modifier = Modifier.size(18.dp))
-                                    Text("Authenticate & Enable Cloud Backup", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold))
+                                    Icon(
+                                        imageVector = if (isSignUpMode) Icons.Default.AppRegistration else Icons.Default.Login,
+                                        contentDescription = "Authenticate",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = if (isSignUpMode) "Register & Create Profile" else "Secure Login & Enable Backup",
+                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold)
+                                    )
                                 }
+                            }
+
+                            // Toggle Sign-up/Login Mode Button
+                            TextButton(
+                                onClick = { isSignUpMode = !isSignUpMode },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = if (isSignUpMode) "Already have an account? Sign In" else "Don't have an account yet? Register Profile",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold)
+                                )
                             }
                         }
                     }

@@ -175,4 +175,173 @@ object GeminiChessEngine {
             return MoveResult(null, null, false, e.localizedMessage ?: "Unknown exception occurred.")
         }
     }
+
+    data class TrapAnalysisResult(
+        val trapName: String,
+        val motif: String,
+        val dangerousMoves: String,
+        val continuation: String,
+        val evaluation: String,
+        val explanation: String,
+        val success: Boolean,
+        val errorMessage: String? = null
+    )
+
+    fun analyzeChessPosition(
+        fen: String?,
+        imageBytes: ByteArray?
+    ): TrapAnalysisResult {
+        val apiKey = BuildConfig.GEMINI_API_KEY
+        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
+            return TrapAnalysisResult(
+                trapName = "API Key Missing",
+                motif = "Authentication Required",
+                dangerousMoves = "N/A",
+                continuation = "N/A",
+                evaluation = "N/A",
+                explanation = "API Key is not configured in the AI Studio Secrets panel. Please enter your GEMINI_API_KEY.",
+                success = false,
+                errorMessage = "API Key is not configured."
+            )
+        }
+
+        val systemInstruction = """
+            You are an elite Grandmaster Chess Coach and Tactical Analyst.
+            Your task is to analyze the active chess board state provided (either via FEN notation, a screenshot image, or both) and identify:
+            1. Any known opening traps associated with the position (e.g. Legal's trap, Fishing Pole, Blackburne Shilling, Noah's Ark, etc.).
+            2. If no standard named trap is active, synthesize a tactical and positional report for this board state.
+            3. The primary tactical motifs (Pin, Fork, Skewer, Deflection, Trapped Piece, etc.).
+            4. Dangerous candidate moves or common blunders to avoid.
+            5. The optimal line or continuation sequence (in standard algebraic notation).
+            6. A dynamic tactical evaluation (e.g. +1.5, -2.4, or Mate in 3).
+            7. A detailed paragraph explaining the motifs, themes, and warnings.
+
+            You MUST respond with valid JSON containing the following fields:
+            {
+              "trap_name": "Name of trap or position summary",
+              "motif": "The tactical motif(s) present",
+              "dangerous_moves": "Moves to avoid",
+              "continuation": "Optimal continuation sequence",
+              "evaluation": "Tactical evaluation (e.g. +1.3)",
+              "explanation": "Clear, instructive strategic and tactical explanation."
+            }
+        """.trimIndent()
+
+        val textPrompt = if (!fen.isNullOrEmpty()) {
+            "Analyze this active position FEN: $fen"
+        } else {
+            "Analyze the active chess board state shown in this screenshot image."
+        }
+
+        try {
+            val partsArray = JSONArray().apply {
+                put(JSONObject().apply {
+                    put("text", textPrompt)
+                })
+            }
+
+            if (imageBytes != null) {
+                val base64Image = android.util.Base64.encodeToString(imageBytes, android.util.Base64.NO_WRAP)
+                partsArray.put(JSONObject().apply {
+                    put("inlineData", JSONObject().apply {
+                        put("mimeType", "image/jpeg")
+                        put("data", base64Image)
+                    })
+                })
+            }
+
+            val contentsJson = JSONObject().apply {
+                put("parts", partsArray)
+            }
+
+            val systemInstructionJson = JSONObject().apply {
+                put("parts", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("text", systemInstruction)
+                    })
+                })
+            }
+
+            val generationConfigJson = JSONObject().apply {
+                put("responseMimeType", "application/json")
+                put("temperature", 0.2)
+            }
+
+            val payloadJson = JSONObject().apply {
+                put("contents", JSONArray().apply { put(contentsJson) })
+                put("systemInstruction", systemInstructionJson)
+                put("generationConfig", generationConfigJson)
+            }
+
+            val mediaType = "application/json".toMediaTypeOrNull()
+            val requestBody = payloadJson.toString().toRequestBody(mediaType)
+
+            val url = "$BASE_URL?key=$apiKey"
+            val request = Request.Builder()
+                .url(url)
+                .post(requestBody)
+                .header("Content-Type", "application/json")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string()
+                if (!response.isSuccessful || body == null) {
+                    return TrapAnalysisResult(
+                        trapName = "Analysis Error", motif = "Network Issue", dangerousMoves = "N/A", continuation = "N/A", evaluation = "0.0",
+                        explanation = "Failed to call Gemini API: HTTP ${response.code}", success = false, errorMessage = "HTTP ${response.code}"
+                    )
+                }
+
+                val jsonResponse = JSONObject(body)
+                val candidates = jsonResponse.optJSONArray("candidates")
+                if (candidates == null || candidates.length() == 0) {
+                    return TrapAnalysisResult(
+                        trapName = "No Result", motif = "Unknown", dangerousMoves = "N/A", continuation = "N/A", evaluation = "0.0",
+                        explanation = "Gemini API did not return any candidates.", success = false, errorMessage = "Empty candidates"
+                    )
+                }
+
+                val content = candidates.getJSONObject(0).optJSONObject("content") ?: return TrapAnalysisResult(
+                    trapName = "Parsing Issue", motif = "Unknown", dangerousMoves = "N/A", continuation = "N/A", evaluation = "0.0",
+                    explanation = "Content missing in candidate response.", success = false, errorMessage = "Missing content"
+                )
+
+                val parts = content.optJSONArray("parts") ?: return TrapAnalysisResult(
+                    trapName = "Parsing Issue", motif = "Unknown", dangerousMoves = "N/A", continuation = "N/A", evaluation = "0.0",
+                    explanation = "Parts missing in content response.", success = false, errorMessage = "Missing parts"
+                )
+
+                val rawText = parts.getJSONObject(0).optString("text")?.trim() ?: ""
+                if (rawText.isEmpty()) {
+                    return TrapAnalysisResult(
+                        trapName = "Parsing Issue", motif = "Unknown", dangerousMoves = "N/A", continuation = "N/A", evaluation = "0.0",
+                        explanation = "Returned text is empty.", success = false, errorMessage = "Empty text"
+                    )
+                }
+
+                val innerJson = JSONObject(rawText)
+                return TrapAnalysisResult(
+                    trapName = innerJson.optString("trap_name", "Chess Position report"),
+                    motif = innerJson.optString("motif", "Tactical analysis"),
+                    dangerousMoves = innerJson.optString("dangerous_moves", "Blunder candidates"),
+                    continuation = innerJson.optString("continuation", "Optimal sequence"),
+                    evaluation = innerJson.optString("evaluation", "0.0"),
+                    explanation = innerJson.optString("explanation", "Positional details analyzed successfully."),
+                    success = true
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error executing Gemini trap analysis", e)
+            return TrapAnalysisResult(
+                trapName = "Analysis Failed",
+                motif = "Exception Occurred",
+                dangerousMoves = "N/A",
+                continuation = "N/A",
+                evaluation = "N/A",
+                explanation = "Error executing analysis: ${e.localizedMessage}",
+                success = false,
+                errorMessage = e.localizedMessage
+            )
+        }
+    }
 }

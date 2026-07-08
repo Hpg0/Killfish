@@ -387,6 +387,41 @@ fun HomeDashboardScreen(viewModel: ChessViewModel) {
                                 style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
                                 color = colors.onSurface
                             )
+                            
+                            // Player Tag Badge Row
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            ) {
+                                val tagColor = when (viewModel.playerTag) {
+                                    "New Player" -> Color(0xFF10B981) // Green
+                                    "Old Player" -> Color(0xFFF59E0B) // Amber
+                                    else -> Color(0xFF6B7280) // Gray for Guest
+                                }
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = tagColor.copy(alpha = 0.15f),
+                                        contentColor = tagColor
+                                    ),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        text = viewModel.playerTag.uppercase(),
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                                
+                                if (viewModel.playerTag == "New Player") {
+                                    Text(
+                                        text = "Trial Timer: ${viewModel.premiumTrialTimeRemainingStr}",
+                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                        color = Color(0xFF10B981)
+                                    )
+                                }
+                            }
+
                             Text(
                                 text = "Elo: $estimatedElo | Path: ${viewModel.userChessReason} | Saved: ${viewModel.allGames.value.size}",
                                 style = MaterialTheme.typography.bodySmall,
@@ -530,7 +565,7 @@ fun HomeDashboardScreen(viewModel: ChessViewModel) {
                     )
                 }
 
-                // Row 6: Offline Trainer Module
+                // Row 6: Offline Trainer Module & Multiplayer Arena
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -542,6 +577,29 @@ fun HomeDashboardScreen(viewModel: ChessViewModel) {
                         color = colors.primary,
                         modifier = Modifier.weight(1f),
                         onClick = { viewModel.activeScreen = "offline_trainer" }
+                    )
+                    ModuleCard(
+                        title = "Multiplayer Arena",
+                        subtitle = "Pass & Play or Online Lobby",
+                        icon = Icons.Default.Groups,
+                        color = colors.primary,
+                        modifier = Modifier.weight(1f),
+                        onClick = { viewModel.activeScreen = "multiplayer" }
+                    )
+                }
+
+                // Row 7: Chess Trap Analyzer (AI Neural Position Recon)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    ModuleCard(
+                        title = "Chess Trap Analyzer",
+                        subtitle = "Scan openings & FENs for strategic traps",
+                        icon = Icons.Default.Search,
+                        color = colors.primary,
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { viewModel.activeScreen = "chess_traps" }
                     )
                 }
             }
